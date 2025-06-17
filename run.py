@@ -226,10 +226,12 @@ def send_invoice_to_webhook(invoice_id):
                         "invoice_date",
                         "invoice_date_due",
                         "amount_total",
+                        "amount_residual",
                         "invoice_line_ids",
                         "state",
                         "user_id",
-                        "move_type"
+                        "move_type",
+                        "attachment_ids"
                     ]
                 }
             )
@@ -288,6 +290,27 @@ def send_invoice_to_webhook(invoice_id):
                 }
             )
 
+            # Get attachments
+            attachments = []
+            if invoice[0].get('attachment_ids'):
+                attachments = models.execute_kw(
+                    db, uid, api_key,
+                    'ir.attachment', 'search_read',
+                    [[['id', 'in', invoice[0]['attachment_ids']]]],
+                    {
+                        'fields': [
+                            'id',
+                            'name',
+                            'mimetype',
+                            'file_size',
+                            'create_date',
+                            'write_date',
+                            'type',
+                            'url'
+                        ]
+                    }
+                )
+
             # Prepare the payload
             payload = {
                 "event": "new_invoice",
@@ -301,13 +324,37 @@ def send_invoice_to_webhook(invoice_id):
                                 "invoice_date": invoice[0]['invoice_date'],
                                 "invoice_date_due": invoice[0]['invoice_date_due'],
                                 "amount_total": invoice[0]['amount_total'],
+                                "amount_residual": invoice[0]['amount_residual'],
                                 "currency": invoice_lines[0]['currency_id'][1] if invoice_lines and invoice_lines[0]['currency_id'] else "",
                                 "invoice_lines": [{
                                     "product": line['product_id'][1] if line['product_id'] else "",
                                     "quantity": line['quantity'],
                                     "price_unit": line['price_unit'],
                                     "subtotal": line['price_subtotal']
-                                } for line in invoice_lines]
+                                } for line in invoice_lines],
+                                "attachments": [{
+                                    "id": att['id'],
+                                    "name": att['name'],
+                                    "mimetype": att['mimetype'],
+                                    "file_size": att['file_size'],
+                                    "create_date": att['create_date'],
+                                    "write_date": att['write_date'],
+                                    "type": att['type'],
+                                    "url": att['url']
+                                } for att in attachments]
+                            },
+                            "company_id": 5
+                        }
+                    },
+                    {
+                        "name": "payment_reminder",
+                        "payload": {
+                            "invoice": {
+                                "invoice_name": invoice[0]['name'],
+                                "partner": partner[0]['name'] if partner else "",
+                                "amount_residual": invoice[0]['amount_residual'],
+                                "currency": invoice_lines[0]['currency_id'][1] if invoice_lines and invoice_lines[0]['currency_id'] else "",
+                                "invoice_date_due": invoice[0]['invoice_date_due']
                             },
                             "company_id": 5
                         }

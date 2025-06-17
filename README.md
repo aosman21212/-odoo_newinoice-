@@ -8,6 +8,8 @@ This script automates the process of monitoring and processing invoices in an Od
 - PDF generation and processing
 - Partner ledger integration
 - Webhook integration
+- Attachment handling
+- Payment reminder processing
 - Robust error handling and retry mechanisms
 - Automatic reconnection on failures
 
@@ -106,6 +108,7 @@ The script sends the following data structure to the webhook:
                     "invoice_date": "date",
                     "invoice_date_due": "date",
                     "amount_total": "float",
+                    "amount_residual": "float",
                     "currency": "string",
                     "invoice_lines": [
                         {
@@ -114,7 +117,32 @@ The script sends the following data structure to the webhook:
                             "price_unit": "float",
                             "subtotal": "float"
                         }
+                    ],
+                    "attachments": [
+                        {
+                            "id": "integer",
+                            "name": "string",
+                            "mimetype": "string",
+                            "file_size": "integer",
+                            "create_date": "datetime",
+                            "write_date": "datetime",
+                            "type": "string",
+                            "url": "string"
+                        }
                     ]
+                },
+                "company_id": 5
+            }
+        },
+        {
+            "name": "payment_reminder",
+            "payload": {
+                "invoice": {
+                    "invoice_name": "string",
+                    "partner": "string",
+                    "amount_residual": "float",
+                    "currency": "string",
+                    "invoice_date_due": "date"
                 },
                 "company_id": 5
             }
@@ -124,7 +152,16 @@ The script sends the following data structure to the webhook:
             "payload": {
                 "partner_id": "integer",
                 "partner_name": "string",
-                "ledger_entries": "array",
+                "ledger_entries": [
+                    {
+                        "id": "integer",
+                        "date": "date",
+                        "name": "string",
+                        "debit": "float",
+                        "credit": "float",
+                        "balance": "float"
+                    }
+                ],
                 "company_id": 5
             }
         },
@@ -148,6 +185,8 @@ The script provides detailed logging:
 - Error messages
 - Webhook responses
 - PDF generation status
+- Attachment processing status
+- Payment reminder status
 
 ## Error Recovery
 The script implements several recovery mechanisms:
@@ -155,18 +194,21 @@ The script implements several recovery mechanisms:
 2. Reconnection after 5 consecutive errors
 3. 5-minute wait period after failed reconnection
 4. Data validation to prevent processing invalid invoices
+5. Attachment validation and error handling
 
 ## Security
 - API keys are required for authentication
 - Secure HTTPS connections
 - Timeout settings for network requests
 - Input validation for all operations
+- Secure attachment handling
 
 ## Performance
 - 1-minute check interval for new invoices
 - 5-second delay between processing multiple invoices
 - 30-second timeout for network requests
 - Efficient data validation and processing
+- Optimized attachment handling
 
 ## Maintenance
 To maintain the script:
@@ -174,6 +216,8 @@ To maintain the script:
 2. Monitor error logs
 3. Check webhook endpoint availability
 4. Verify Odoo server connectivity
+5. Monitor attachment processing
+6. Check payment reminder status
 
 ## Troubleshooting
 Common issues and solutions:
@@ -192,12 +236,24 @@ Common issues and solutions:
    - Check payload format
    - Ensure webhook endpoint is accessible
 
+4. Attachment issues:
+   - Verify attachment permissions
+   - Check file size limits
+   - Ensure proper MIME types
+
+5. Payment reminder issues:
+   - Verify invoice due dates
+   - Check residual amounts
+   - Ensure currency information
+
 ## Support
 For issues or questions:
 1. Check error logs
 2. Verify configuration
 3. Test connectivity
 4. Review documentation
+5. Check attachment processing
+6. Verify payment reminders
 
 ## License
 [Specify your license here]
