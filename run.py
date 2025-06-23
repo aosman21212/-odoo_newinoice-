@@ -12,7 +12,7 @@ from xmlrpc.client import ProtocolError, Fault
 url = 'https://odoo-ps-psae-bab-international-corp-staging-21244280.dev.odoo.com'
 db = 'odoo-ps-psae-bab-international-corp-staging-21244280'
 username = 'admin'
-api_key = '665226cf06269d4a9402d41475b3b052b8980644'  # Your API key
+api_key = 'debfa352207d10342eb9900041282b27d914dff8'  # Your API key
 pdf_api_key = 'wEUcUsNSIaz8viGwzA_6VnimKdlgbItusDKMGOmVvmZRH33ptRh4MmcIXdujT-zHL8nGypkK8rIqT5TDsKv7'  # PDF API key
 
 def connect_to_odoo(max_retries=3, retry_delay=5):
@@ -206,33 +206,20 @@ def get_invoice_pdf(invoice_id):
 
 def send_invoice_to_webhook(invoice_id):
     """
-    Fetches the PDF URL of the given invoice and sends it to the webhook with retry logic
+    Fetches all fields from the account.move model and sends them to the webhook with retry logic
     """
     max_retries = 3
     retry_delay = 5
     
     for attempt in range(max_retries):
         try:
-            # Verify invoice exists and is accessible
+            # Get all fields from the account.move model for the specific invoice
             invoice = models.execute_kw(
                 db, uid, api_key,
                 'account.move', 'search_read',
                 [[['id', '=', invoice_id], ['company_id', '=', 5]]],
                 {
-                    'fields': [
-                        "id",
-                        "name",
-                        "partner_id",
-                        "invoice_date",
-                        "invoice_date_due",
-                        "amount_total",
-                        "amount_residual",
-                        "invoice_line_ids",
-                        "state",
-                        "user_id",
-                        "move_type",
-                        "attachment_ids"
-                    ]
+                    'fields': []  # Empty fields list means get all fields
                 }
             )
             
@@ -242,142 +229,11 @@ def send_invoice_to_webhook(invoice_id):
                 
             print(f"Found invoice: {invoice[0]['name']} (State: {invoice[0]['state']})")
 
-            # Get the PDF URL
-            pdf_url = get_invoice_pdf(invoice_id)
-            if not pdf_url:
-                print("Failed to get PDF URL")
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                    continue
-                return False
-
-            # Get partner details
-            partner = models.execute_kw(
-                db, uid, api_key,
-                'res.partner', 'search_read',
-                [[['id', '=', invoice[0]['partner_id'][0]]]],
-                {'fields': ['name', 'email', 'phone', 'street', 'city', 'country_id']}
-            )
-
-            # Get partner ledger entries
-            partner_ledger = get_partner_ledger(invoice[0]['partner_id'][0])
-
-            # Get invoice line details
-            invoice_lines = models.execute_kw(
-                db, uid, api_key,
-                'account.move.line', 'search_read',
-                [[['id', 'in', invoice[0]['invoice_line_ids']]]],
-                {
-                    'fields': [
-                        'name',
-                        'quantity',
-                        'price_unit',
-                        'price_subtotal',
-                        'price_total',
-                        'product_id',
-                        'tax_ids',
-                        'discount',
-                        'currency_id',
-                        'account_id',
-                        'company_id',
-                        'date',
-                        'debit',
-                        'credit',
-                        'balance',
-                        'amount_currency',
-                        'move_id'
-                    ]
-                }
-            )
-
-            # Get attachments
-            attachments = []
-            if invoice[0].get('attachment_ids'):
-                attachments = models.execute_kw(
-                    db, uid, api_key,
-                    'ir.attachment', 'search_read',
-                    [[['id', 'in', invoice[0]['attachment_ids']]]],
-                    {
-                        'fields': [
-                            'id',
-                            'name',
-                            'mimetype',
-                            'file_size',
-                            'create_date',
-                            'write_date',
-                            'type',
-                            'url'
-                        ]
-                    }
-                )
-
-            # Prepare the payload
+            # Prepare the payload in the simplified format
             payload = {
-                "event": "new_invoice",
-                "operations": [
-                    {
-                        "name": "fetch_invoice_details",
-                        "payload": {
-                            "invoice": {
-                                "invoice_name": invoice[0]['name'],
-                                "partner": partner[0]['name'] if partner else "",
-                                "invoice_date": invoice[0]['invoice_date'],
-                                "invoice_date_due": invoice[0]['invoice_date_due'],
-                                "amount_total": invoice[0]['amount_total'],
-                                "amount_residual": invoice[0]['amount_residual'],
-                                "currency": invoice_lines[0]['currency_id'][1] if invoice_lines and invoice_lines[0]['currency_id'] else "",
-                                "invoice_lines": [{
-                                    "product": line['product_id'][1] if line['product_id'] else "",
-                                    "quantity": line['quantity'],
-                                    "price_unit": line['price_unit'],
-                                    "subtotal": line['price_subtotal']
-                                } for line in invoice_lines],
-                                "attachments": [{
-                                    "id": att['id'],
-                                    "name": att['name'],
-                                    "mimetype": att['mimetype'],
-                                    "file_size": att['file_size'],
-                                    "create_date": att['create_date'],
-                                    "write_date": att['write_date'],
-                                    "type": att['type'],
-                                    "url": att['url']
-                                } for att in attachments]
-                            },
-                            "company_id": 5
-                        }
-                    },
-                    {
-                        "name": "payment_reminder",
-                        "payload": {
-                            "invoice": {
-                                "invoice_name": invoice[0]['name'],
-                                "partner": partner[0]['name'] if partner else "",
-                                "amount_residual": invoice[0]['amount_residual'],
-                                "currency": invoice_lines[0]['currency_id'][1] if invoice_lines and invoice_lines[0]['currency_id'] else "",
-                                "invoice_date_due": invoice[0]['invoice_date_due']
-                            },
-                            "company_id": 5
-                        }
-                    },
-                    {
-                        "name": "partner_ledger",
-                        "payload": {
-                            "partner_id": invoice[0]['partner_id'][0],
-                            "partner_name": partner[0]['name'] if partner else "",
-                            "ledger_entries": partner_ledger if partner_ledger else [],
-                            "company_id": 5
-                        }
-                    },
-                    {
-                        "name": "pdf_invoice",
-                        "payload": {
-                            "invoice_id": invoice[0]['id'],
-                            "invoice_name": invoice[0]['name'],
-                            "pdf_url": pdf_url,
-                            "company_id": 5
-                        }
-                    }
-                ]
+                "model": "account.move",
+                "id": invoice[0]['id'],
+                "data": invoice[0]  # All fields from account.move
             }
 
             # Webhook URL
