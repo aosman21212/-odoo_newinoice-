@@ -216,7 +216,7 @@ def show_payload_structure(payload):
 
 def send_invoice_to_webhook(invoice_id):
     """
-    Fetches invoice data and creates a comprehensive payload with multiple models
+    Fetches invoice data and creates a comprehensive payload with multiple operations
     """
     max_retries = 3
     retry_delay = 5
@@ -255,9 +255,6 @@ def send_invoice_to_webhook(invoice_id):
             # Get invoice lines
             invoice_lines = get_invoice_lines(invoice_id)
             
-            # Get attachments
-            attachments = get_invoice_attachments(invoice_id)
-            
             # Get partner ledger entries
             ledger_entries = []
             if partner_id:
@@ -268,48 +265,44 @@ def send_invoice_to_webhook(invoice_id):
 
             # Create the comprehensive payload structure
             payload = {
-                "data": [
-                    {
-                        "model": "fetch_invoice_details",
-                        "payload": {
-                            "invoice_name": invoice_data.get('name', ''),
-                            "partner": partner_name,
-                            "invoice_date": invoice_data.get('invoice_date', ''),
-                            "invoice_date_due": invoice_data.get('invoice_date_due', ''),
-                            "amount_total": invoice_data.get('amount_total', 0.0),
-                            "amount_residual": invoice_data.get('amount_residual', 0.0),
-                            "currency": currency,
-                            "invoice_lines": invoice_lines,
-                            "attachments": attachments
+                "model": "new_invoice",
+                "id": invoice_id,
+                "data": {
+                    "operations": [
+                        {
+                            "name": "fetch_invoice_details",
+                            "payload": {
+                                "invoice": {
+                                    "invoice_name": invoice_data.get('name', ''),
+                                    "partner": partner_name,
+                                    "invoice_date": invoice_data.get('invoice_date', ''),
+                                    "invoice_date_due": invoice_data.get('invoice_date_due', ''),
+                                    "amount_total": invoice_data.get('amount_total', 0.0),
+                                    "amount_residual": invoice_data.get('amount_residual', 0.0),
+                                    "currency": currency,
+                                    "invoice_lines": invoice_lines
+                                }
+                            }
+                        },
+                        {
+                            "name": "partner_ledger",
+                            "payload": {
+                                "partner_id": partner_id,
+                                "partner_name": partner_name,
+                                "ledger_entries": ledger_entries
+                            }
+                        },
+                        {
+                            "name": "pdf_invoice",
+                            "payload": {
+                                "invoice_id": invoice_id,
+                                "invoice_name": invoice_data.get('name', ''),
+                                "pdf_url": pdf_url if pdf_url else ""
+                            }
                         }
-                    },
-                    {
-                        "model": "payment_reminder",
-                        "payload": {
-                            "invoice_name": invoice_data.get('name', ''),
-                            "partner": partner_name,
-                            "amount_residual": invoice_data.get('amount_residual', 0.0),
-                            "currency": currency,
-                            "invoice_date_due": invoice_data.get('invoice_date_due', '')
-                        }
-                    },
-                    {
-                        "model": "partner_ledger",
-                        "payload": {
-                            "partner_id": partner_id,
-                            "partner_name": partner_name,
-                            "ledger_entries": ledger_entries
-                        }
-                    },
-                    {
-                        "model": "pdf_invoice",
-                        "payload": {
-                            "invoice_id": invoice_id,
-                            "invoice_name": invoice_data.get('name', ''),
-                            "pdf_url": pdf_url if pdf_url else ""
-                        }
-                    }
-                ]
+                    ]
+                },
+                "company_id": 5
             }
 
             # Show the payload structure before sending
@@ -455,89 +448,74 @@ def test_webhook_endpoint():
     
     # Test payload with the new structure
     test_payload = {
-        "data": [
-            {
-                "model": "fetch_invoice_details",
-                "payload": {
-                    "invoice_name": "TEST/2025/001",
-                    "partner": "Test Partner",
-                    "invoice_date": "2025-01-27",
-                    "invoice_date_due": "2025-02-26",
-                    "amount_total": 1000.0,
-                    "amount_residual": 500.0,
-                    "currency": "USD",
-                    "invoice_lines": [
-                        {
-                            "product": "Test Product A",
-                            "quantity": 2.0,
-                            "price_unit": 250.0,
-                            "subtotal": 500.0
-                        },
-                        {
-                            "product": "Test Product B",
-                            "quantity": 1.0,
-                            "price_unit": 500.0,
-                            "subtotal": 500.0
+        "model": "new_invoice",
+        "id": 12345,
+        "data": {
+            "operations": [
+                {
+                    "name": "fetch_invoice_details",
+                    "payload": {
+                        "invoice": {
+                            "invoice_name": "TEST/2025/001",
+                            "partner": "Test Partner",
+                            "invoice_date": "2025-01-27",
+                            "invoice_date_due": "2025-02-26",
+                            "amount_total": 1000.0,
+                            "amount_residual": 500.0,
+                            "currency": "USD",
+                            "invoice_lines": [
+                                {
+                                    "product": "Test Product A",
+                                    "quantity": 2.0,
+                                    "price_unit": 250.0,
+                                    "subtotal": 500.0
+                                },
+                                {
+                                    "product": "Test Product B",
+                                    "quantity": 1.0,
+                                    "price_unit": 500.0,
+                                    "subtotal": 500.0
+                                }
+                            ]
                         }
-                    ],
-                    "attachments": [
-                        {
-                            "id": 1,
-                            "name": "test_contract.pdf",
-                            "mimetype": "application/pdf",
-                            "file_size": 102400,
-                            "create_date": "2025-01-27T10:00:00Z",
-                            "write_date": "2025-01-27T10:00:00Z",
-                            "type": "attachment",
-                            "url": "https://example.com/attachments/test_contract.pdf"
-                        }
-                    ]
+                    }
+                },
+                {
+                    "name": "partner_ledger",
+                    "payload": {
+                        "partner_id": 101,
+                        "partner_name": "Test Partner",
+                        "ledger_entries": [
+                            {
+                                "id": 1001,
+                                "date": "2025-01-27",
+                                "name": "Invoice TEST/2025/001",
+                                "debit": 1000.0,
+                                "credit": 0.0,
+                                "balance": 1000.0
+                            },
+                            {
+                                "id": 1002,
+                                "date": "2025-01-30",
+                                "name": "Payment for TEST/2025/001",
+                                "debit": 0.0,
+                                "credit": 500.0,
+                                "balance": 500.0
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "pdf_invoice",
+                    "payload": {
+                        "invoice_id": 12345,
+                        "invoice_name": "TEST/2025/001",
+                        "pdf_url": "https://example.com/invoices/TEST-2025-001.pdf"
+                    }
                 }
-            },
-            {
-                "model": "payment_reminder",
-                "payload": {
-                    "invoice_name": "TEST/2025/001",
-                    "partner": "Test Partner",
-                    "amount_residual": 500.0,
-                    "currency": "USD",
-                    "invoice_date_due": "2025-02-26"
-                }
-            },
-            {
-                "model": "partner_ledger",
-                "payload": {
-                    "partner_id": 101,
-                    "partner_name": "Test Partner",
-                    "ledger_entries": [
-                        {
-                            "id": 1001,
-                            "date": "2025-01-27",
-                            "name": "Invoice TEST/2025/001",
-                            "debit": 1000.0,
-                            "credit": 0.0,
-                            "balance": 1000.0
-                        },
-                        {
-                            "id": 1002,
-                            "date": "2025-01-30",
-                            "name": "Payment for TEST/2025/001",
-                            "debit": 0.0,
-                            "credit": 500.0,
-                            "balance": 500.0
-                        }
-                    ]
-                }
-            },
-            {
-                "model": "pdf_invoice",
-                "payload": {
-                    "invoice_id": 12345,
-                    "invoice_name": "TEST/2025/001",
-                    "pdf_url": "https://example.com/invoices/TEST-2025-001.pdf"
-                }
-            }
-        ]
+            ]
+        },
+        "company_id": 5
     }
     
     webhook_url = 'https://odoo-agent-main-113251955071.me-central1.run.app/agent/event'
