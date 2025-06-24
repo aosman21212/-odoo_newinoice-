@@ -204,9 +204,19 @@ def get_invoice_pdf(invoice_id):
                 continue
             return None
 
+def show_payload_structure(payload):
+    """
+    Display the payload structure that will be sent to webhook
+    """
+    print("\n" + "="*60)
+    print("PAYLOAD THAT WILL BE SENT TO WEBHOOK:")
+    print("="*60)
+    print(json.dumps(payload, indent=2, default=str))
+    print("="*60)
+
 def send_invoice_to_webhook(invoice_id):
     """
-    Fetches all fields from the account.move model and sends them to the webhook with retry logic
+    Fetches invoice data and creates a comprehensive payload with multiple models
     """
     max_retries = 3
     retry_delay = 5
@@ -227,17 +237,86 @@ def send_invoice_to_webhook(invoice_id):
                 print(f"Error: Invoice ID {invoice_id} not found or not accessible for company_id 5")
                 return False
                 
-            print(f"Found invoice: {invoice[0]['name']} (State: {invoice[0]['state']})")
+            invoice_data = invoice[0]
+            print(f"Found invoice: {invoice_data['name']} (State: {invoice_data['state']})")
 
-            # Prepare the payload in the simplified format
+            # Get partner information
+            partner_name = "Unknown Partner"
+            partner_id = None
+            if invoice_data.get('partner_id') and isinstance(invoice_data['partner_id'], list) and len(invoice_data['partner_id']) > 1:
+                partner_name = invoice_data['partner_id'][1]
+                partner_id = invoice_data['partner_id'][0]
+
+            # Get currency information
+            currency = "USD"
+            if invoice_data.get('currency_id') and isinstance(invoice_data['currency_id'], list) and len(invoice_data['currency_id']) > 1:
+                currency = invoice_data['currency_id'][1]
+
+            # Get invoice lines
+            invoice_lines = get_invoice_lines(invoice_id)
+            
+            # Get attachments
+            attachments = get_invoice_attachments(invoice_id)
+            
+            # Get partner ledger entries
+            ledger_entries = []
+            if partner_id:
+                ledger_entries = get_partner_ledger_entries(partner_id)
+            
+            # Get PDF URL
+            pdf_url = get_invoice_pdf(invoice_id)
+
+            # Create the comprehensive payload structure
             payload = {
-                "model": "account.move",
-                "id": invoice[0]['id'],
-                "data": invoice[0]  # All fields from account.move
+                "data": [
+                    {
+                        "model": "fetch_invoice_details",
+                        "payload": {
+                            "invoice_name": invoice_data.get('name', ''),
+                            "partner": partner_name,
+                            "invoice_date": invoice_data.get('invoice_date', ''),
+                            "invoice_date_due": invoice_data.get('invoice_date_due', ''),
+                            "amount_total": invoice_data.get('amount_total', 0.0),
+                            "amount_residual": invoice_data.get('amount_residual', 0.0),
+                            "currency": currency,
+                            "invoice_lines": invoice_lines,
+                            "attachments": attachments
+                        }
+                    },
+                    {
+                        "model": "payment_reminder",
+                        "payload": {
+                            "invoice_name": invoice_data.get('name', ''),
+                            "partner": partner_name,
+                            "amount_residual": invoice_data.get('amount_residual', 0.0),
+                            "currency": currency,
+                            "invoice_date_due": invoice_data.get('invoice_date_due', '')
+                        }
+                    },
+                    {
+                        "model": "partner_ledger",
+                        "payload": {
+                            "partner_id": partner_id,
+                            "partner_name": partner_name,
+                            "ledger_entries": ledger_entries
+                        }
+                    },
+                    {
+                        "model": "pdf_invoice",
+                        "payload": {
+                            "invoice_id": invoice_id,
+                            "invoice_name": invoice_data.get('name', ''),
+                            "pdf_url": pdf_url if pdf_url else ""
+                        }
+                    }
+                ]
             }
 
+            # Show the payload structure before sending
+            show_payload_structure(payload)
+
             # Webhook URL
-            webhook_url = 'https://odoo-agent-main-113251955071.me-central1.run.app/agent'
+            webhook_url = 'https://odoo-agent-main-113251955071.me-central1.run.app/agent/event'
 
             # Send the payload to the webhook
             response = requests.post(webhook_url, json=payload, timeout=30)
@@ -254,6 +333,8 @@ def send_invoice_to_webhook(invoice_id):
                 return True
             else:
                 print(f"Webhook error (attempt {attempt + 1}/{max_retries}): Status code {response.status_code}")
+                print(f"Response Headers: {dict(response.headers)}")
+                print(f"Response Body: {response.text}")
                 if attempt < max_retries - 1:
                     time.sleep(retry_delay)
                     continue
@@ -281,7 +362,7 @@ def send_invoice_to_webhook(invoice_id):
 # Example usage: Triggered when an invoice is created
 def on_invoice_create(invoice_id):
     """
-    This function is called when a new invoice is created.
+    This function is called when a all invoice is created.
     It triggers the webhook with the invoice PDF.
     """
     send_invoice_to_webhook(invoice_id)
@@ -365,9 +446,294 @@ def get_partner_ledger(partner_id):
         print("Error getting partner ledger:", str(e))
         return None
 
+def test_webhook_endpoint():
+    """
+    Test the webhook endpoint with a simple payload to diagnose issues
+    """
+    print("\nTesting webhook endpoint...")
+    print("="*50)
+    
+    # Test payload with the new structure
+    test_payload = {
+        "data": [
+            {
+                "model": "fetch_invoice_details",
+                "payload": {
+                    "invoice_name": "TEST/2025/001",
+                    "partner": "Test Partner",
+                    "invoice_date": "2025-01-27",
+                    "invoice_date_due": "2025-02-26",
+                    "amount_total": 1000.0,
+                    "amount_residual": 500.0,
+                    "currency": "USD",
+                    "invoice_lines": [
+                        {
+                            "product": "Test Product A",
+                            "quantity": 2.0,
+                            "price_unit": 250.0,
+                            "subtotal": 500.0
+                        },
+                        {
+                            "product": "Test Product B",
+                            "quantity": 1.0,
+                            "price_unit": 500.0,
+                            "subtotal": 500.0
+                        }
+                    ],
+                    "attachments": [
+                        {
+                            "id": 1,
+                            "name": "test_contract.pdf",
+                            "mimetype": "application/pdf",
+                            "file_size": 102400,
+                            "create_date": "2025-01-27T10:00:00Z",
+                            "write_date": "2025-01-27T10:00:00Z",
+                            "type": "attachment",
+                            "url": "https://example.com/attachments/test_contract.pdf"
+                        }
+                    ]
+                }
+            },
+            {
+                "model": "payment_reminder",
+                "payload": {
+                    "invoice_name": "TEST/2025/001",
+                    "partner": "Test Partner",
+                    "amount_residual": 500.0,
+                    "currency": "USD",
+                    "invoice_date_due": "2025-02-26"
+                }
+            },
+            {
+                "model": "partner_ledger",
+                "payload": {
+                    "partner_id": 101,
+                    "partner_name": "Test Partner",
+                    "ledger_entries": [
+                        {
+                            "id": 1001,
+                            "date": "2025-01-27",
+                            "name": "Invoice TEST/2025/001",
+                            "debit": 1000.0,
+                            "credit": 0.0,
+                            "balance": 1000.0
+                        },
+                        {
+                            "id": 1002,
+                            "date": "2025-01-30",
+                            "name": "Payment for TEST/2025/001",
+                            "debit": 0.0,
+                            "credit": 500.0,
+                            "balance": 500.0
+                        }
+                    ]
+                }
+            },
+            {
+                "model": "pdf_invoice",
+                "payload": {
+                    "invoice_id": 12345,
+                    "invoice_name": "TEST/2025/001",
+                    "pdf_url": "https://example.com/invoices/TEST-2025-001.pdf"
+                }
+            }
+        ]
+    }
+    
+    webhook_url = 'https://odoo-agent-main-113251955071.me-central1.run.app/agent/event'
+    
+    try:
+        print(f"Sending test payload to: {webhook_url}")
+        print("Test Payload:")
+        print(json.dumps(test_payload, indent=2))
+        
+        response = requests.post(webhook_url, json=test_payload, timeout=30)
+        
+        print(f"\nResponse Status Code: {response.status_code}")
+        print(f"Response Headers: {dict(response.headers)}")
+        print(f"Response Body: {response.text}")
+        
+        if response.status_code == 200:
+            print("✓ Webhook test successful!")
+            return True
+        else:
+            print("✗ Webhook test failed!")
+            return False
+            
+    except Exception as e:
+        print(f"✗ Webhook test error: {str(e)}")
+        return False
+
+def get_invoice_lines(invoice_id):
+    """
+    Gets the invoice lines for a specific invoice
+    """
+    try:
+        # Search for invoice lines for the invoice
+        invoice_lines = models.execute_kw(
+            db, uid, api_key,
+            'account.move.line', 'search_read',
+            [[
+                ['move_id', '=', invoice_id],
+                ['company_id', '=', 5],
+                ['exclude_from_invoice_tab', '=', False]  # Only invoice lines, not payment lines
+            ]],
+            {
+                'fields': [
+                    'id',
+                    'name',
+                    'quantity',
+                    'price_unit',
+                    'price_subtotal',
+                    'product_id',
+                    'account_id'
+                ],
+                'order': 'sequence asc'
+            }
+        )
+        
+        if not invoice_lines:
+            print(f"No invoice lines found for invoice ID {invoice_id}")
+            return []
+        
+        # Format invoice lines
+        formatted_lines = []
+        for line in invoice_lines:
+            product_name = "Unknown Product"
+            if line.get('product_id') and isinstance(line['product_id'], list) and len(line['product_id']) > 1:
+                product_name = line['product_id'][1]
+            
+            formatted_lines.append({
+                "product": product_name,
+                "quantity": line.get('quantity', 0.0),
+                "price_unit": line.get('price_unit', 0.0),
+                "subtotal": line.get('price_subtotal', 0.0)
+            })
+        
+        return formatted_lines
+        
+    except Exception as e:
+        print(f"Error getting invoice lines: {str(e)}")
+        return []
+
+def get_invoice_attachments(invoice_id):
+    """
+    Gets the attachments for a specific invoice
+    """
+    try:
+        # Search for attachments related to the invoice
+        attachments = models.execute_kw(
+            db, uid, api_key,
+            'ir.attachment', 'search_read',
+            [[
+                ['res_model', '=', 'account.move'],
+                ['res_id', '=', invoice_id],
+                ['company_id', '=', 5]
+            ]],
+            {
+                'fields': [
+                    'id',
+                    'name',
+                    'mimetype',
+                    'file_size',
+                    'create_date',
+                    'write_date',
+                    'type'
+                ]
+            }
+        )
+        
+        if not attachments:
+            print(f"No attachments found for invoice ID {invoice_id}")
+            return []
+        
+        # Format attachments
+        formatted_attachments = []
+        for attachment in attachments:
+            # Generate URL for the attachment
+            attachment_url = f"{url}/web/content/{attachment['id']}?download=true"
+            
+            formatted_attachments.append({
+                "id": attachment['id'],
+                "name": attachment.get('name', 'Unknown'),
+                "mimetype": attachment.get('mimetype', 'application/octet-stream'),
+                "file_size": attachment.get('file_size', 0),
+                "create_date": attachment.get('create_date', ''),
+                "write_date": attachment.get('write_date', ''),
+                "type": attachment.get('type', 'attachment'),
+                "url": attachment_url
+            })
+        
+        return formatted_attachments
+        
+    except Exception as e:
+        print(f"Error getting invoice attachments: {str(e)}")
+        return []
+
+def get_partner_ledger_entries(partner_id):
+    """
+    Gets the ledger entries for a specific partner
+    """
+    try:
+        # Search for ledger entries for the partner
+        ledger_entries = models.execute_kw(
+            db, uid, api_key,
+            'account.move.line', 'search_read',
+            [[
+                ['partner_id', '=', partner_id],
+                ['company_id', '=', 5]
+            ]],
+            {
+                'fields': [
+                    'id',
+                    'date',
+                    'name',
+                    'debit',
+                    'credit',
+                    'balance'
+                ],
+                'limit': 100,
+                'order': 'date asc'
+            }
+        )
+        
+        if not ledger_entries:
+            print(f"No ledger entries found for partner ID {partner_id}")
+            return []
+        
+        # Format ledger entries
+        formatted_entries = []
+        for entry in ledger_entries:
+            formatted_entries.append({
+                "id": entry['id'],
+                "date": entry.get('date', ''),
+                "name": entry.get('name', ''),
+                "debit": entry.get('debit', 0.0),
+                "credit": entry.get('credit', 0.0),
+                "balance": entry.get('balance', 0.0)
+            })
+        
+        return formatted_entries
+        
+    except Exception as e:
+        print(f"Error getting partner ledger entries: {str(e)}")
+        return []
+
 if __name__ == "__main__":
     consecutive_errors = 0
     max_consecutive_errors = 5
+    
+    # Test webhook endpoint first
+    print("Testing webhook endpoint before processing invoices...")
+    webhook_test_result = test_webhook_endpoint()
+    
+    if not webhook_test_result:
+        print("\nWarning: Webhook test failed. The endpoint may have issues.")
+        print("Do you want to continue with invoice processing? (y/n): ", end="")
+        user_input = input().strip().lower()
+        if user_input != 'y':
+            print("Exiting due to webhook test failure.")
+            sys.exit(1)
     
     while True:
         try:
